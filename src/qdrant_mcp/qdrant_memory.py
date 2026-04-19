@@ -69,20 +69,25 @@ class QdrantMemoryClient:
         """Ensure the collection exists (lazy initialization)."""
         if self._collection_initialized:
             return
-            
+
         try:
+            # If using a self-hosted OpenAI-compatible server whose dim isn't
+            # in the hardcoded table, do a throwaway embed to discover it
+            # before creating the collection.
+            if self.embedding_provider.dimensions == 0:
+                await self.embedding_provider.embed_text("dim-discovery")
+
             collections = await self.client.get_collections()
             collection_names = [c.name for c in collections.collections]
-            
+
             if self.settings.collection_name not in collection_names:
-                # Create collection with appropriate vector size
                 await self.client.create_collection(
                     collection_name=self.settings.collection_name,
                     vectors_config=VectorParams(
                         size=self.embedding_provider.dimensions,
                         distance=Distance.COSINE,
-                ),
-            )
+                    ),
+                )
             self._collection_initialized = True
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Qdrant collection: {e}")
@@ -180,17 +185,18 @@ class QdrantMemoryClient:
             if conditions:
                 search_filter = Filter(must=conditions)
         
-        # Search
-        results = await self.client.search(
+        # Search (qdrant-client >=1.10 uses query_points; .points holds ScoredPoint list)
+        query_resp = await self.client.query_points(
             collection_name=self.settings.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=limit,
             query_filter=search_filter,
             score_threshold=score_threshold,
             with_payload=True,
             with_vectors=False,
         )
-        
+        results = query_resp.points
+
         # Format results
         formatted_results = []
         for result in results:

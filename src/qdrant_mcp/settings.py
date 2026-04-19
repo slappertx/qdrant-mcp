@@ -79,43 +79,38 @@ class Settings(BaseSettings):
     @field_validator("embedding_model")
     @classmethod
     def validate_embedding_model(cls, v: str, info) -> str:
-        """Validate embedding model based on provider."""
+        """Validate embedding model. Cloud OpenAI names are checked strictly.
+
+        Self-hosted OpenAI-compatible servers (OPENAI_BASE_URL pointing
+        somewhere other than api.openai.com) can serve any model name.
+        """
+        import os
         provider = info.data.get("embedding_provider", "openai")
-        
-        # Define valid models per provider
-        valid_models = {
-            "openai": [
-                "text-embedding-3-small",
-                "text-embedding-3-large",
-                "text-embedding-ada-002"
-            ],
-            "sentence-transformers": [
-                "all-MiniLM-L6-v2",
-                "all-mpnet-base-v2",
-                # Allow any model for sentence-transformers as it supports many
-            ]
-        }
-        
-        if provider == "openai" and v not in valid_models["openai"]:
+        base_url = os.environ.get("OPENAI_BASE_URL") or ""
+        is_local = "api.openai.com" not in base_url and base_url != ""
+
+        cloud_openai = {"text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"}
+        if provider == "openai" and not is_local and v not in cloud_openai:
             raise ValueError(
-                f"Invalid OpenAI model: {v}. "
-                f"Valid models: {', '.join(valid_models['openai'])}"
+                f"Invalid OpenAI model: {v}. Valid cloud models: {sorted(cloud_openai)}. "
+                f"For self-hosted, set OPENAI_BASE_URL."
             )
-        
         return v
-    
+
     @field_validator("openai_api_key")
     @classmethod
     def validate_openai_api_key(cls, v: str | None, info) -> str | None:
-        """Validate OpenAI API key is provided when using OpenAI provider."""
+        """API key is required for cloud OpenAI. Self-hosted servers may
+        accept any string (or no key), so we allow None there."""
+        import os
         provider = info.data.get("embedding_provider", "openai")
-        
-        if provider == "openai" and not v:
+        base_url = os.environ.get("OPENAI_BASE_URL") or ""
+        is_local = "api.openai.com" not in base_url and base_url != ""
+        if provider == "openai" and not v and not is_local:
             raise ValueError(
                 "OpenAI API key is required when using OpenAI embedding provider. "
                 "Set OPENAI_API_KEY environment variable."
             )
-        
         return v
 
 
